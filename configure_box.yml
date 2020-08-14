@@ -1,0 +1,187 @@
+---
+# This Playbook sets up a Vagrant RHEL 8 VM
+- hosts: all
+  gather_facts: true
+  become: yes
+  vars_files:
+    - "./configure_secret_vars.yml"
+  tasks:
+  - name: Register VM with Subscription Manager
+    redhat_subscription:
+      state: present
+      force_register: no
+      username: "{{ redhat_subscription_username }}"
+      password: "{{ redhat_subscription_password }}"
+      pool_ids: "{{ redhat_subscription_poolid }}"
+      consumer_name: "RHEL8VagrantVM"
+    register: r_subscription_added
+    ignore_errors: true
+  # - name: Attach Subscription
+  #   shell: "subscription-manager attach --pool={{ redhat_subscription_poolid }}"
+  - name: Disable all existing Repos
+    when: r_subscription_added.changed
+    rhsm_repository:
+      name: '*'
+      state: disabled
+  - name: Enable Repos
+    when: r_subscription_added.changed
+    rhsm_repository:
+      name:
+      - rhel-8-for-x86_64-baseos-rpms
+      - rhel-8-for-x86_64-appstream-rpms
+      - ansible-2.9-for-rhel-8-x86_64-rpms
+      state: enabled
+  - name: Update all Packages
+    yum:
+      name: '*'
+      state: latest
+  - name: Install OpenShift Development Tools
+    yum:
+      state: present
+      name:
+        - git
+        - podman
+        - skopeo
+        - buildah
+        - maven
+        - java-1.8.0-openjdk-devel
+        - ansible
+        - vim
+        - unzip
+        - python3
+
+  - name: Set Python3 as the current Python version
+    alternatives:
+      name: python
+      path: /usr/bin/python3
+
+  - name: Get the OpenShift Installer
+    become: yes
+    unarchive:
+      src: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable-4.5/openshift-install-linux.tar.gz"
+      remote_src: yes
+      dest: /usr/bin
+      mode: 0755
+      owner: root
+      group: root
+
+  - name: Get the OpenShift CLI
+    become: yes
+    unarchive:
+      src: "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable-4.5/openshift-client-linux.tar.gz"
+      remote_src: yes
+      dest: /usr/bin
+      mode: 0775
+      owner: root
+      group: root
+
+  - name: Get awscli bundle
+    get_url:
+      url: https://s3.amazonaws.com/aws-cli/awscli-bundle.zip
+      dest: /tmp/awscli-bundle.zip
+
+  - name: Unzip awscli-bundle.zip
+    unarchive:
+      src: /tmp/awscli-bundle.zip
+      dest: /tmp/
+      remote_src: yes
+
+  - name: Install awscli
+    command: /tmp/awscli-bundle/install -i /usr/local/aws -b /bin/aws
+    args:
+      creates: /usr/local/aws
+    become: yes
+
+  - name: cleanup archive and tmp files
+    file:
+      path: "{{ item }}"
+      state: absent
+    loop:
+      - /tmp/awscli-bundle
+      - /tmp/awscli-bundle.zip
+
+  - name: Download jq-linux64 1.6
+    ignore_errors: true
+    get_url:
+      url: https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
+      dest: /usr/local/bin/jq
+      mode: 0755
+
+  - name: Install S2I Executable
+    unarchive:
+      src: https://github.com/openshift/source-to-image/releases/download/v1.3.0/source-to-image-v1.3.0-eed2850f-linux-amd64.tar.gz
+      remote_src: yes
+      dest: /usr/local/bin
+      owner: root
+      group: root
+      mode: 0755
+      extra_opts:
+        - --strip=1
+
+  - name: Install bash-git-prompt for root
+    git:
+      repo: https://github.com/magicmonty/bash-git-prompt.git
+      dest: /root/.bash-git-prompt
+      clone: yes
+
+  - name: Install bash-git-prompt for vagrant
+    git:
+      repo: https://github.com/magicmonty/bash-git-prompt.git
+      dest: /home/vagrant/.bash-git-prompt
+      clone: yes
+
+  - name: Change ownership of bash-git-prompt to vagrant
+    file:
+      path: /home/vagrant/.bash-git-prompt
+      owner: vagrant
+      group: vagrant
+      recurse: yes
+
+  - name: Install .bashrc for root
+    copy:
+      src: ./files/bashrc
+      dest: /root/.bashrc
+      mode: 0644
+      owner: root
+      group: root
+
+  - name: Install .bashrc for vagrant
+    copy:
+      src: ./files/bashrc
+      dest: /home/vagrant/.bashrc
+      mode: 0644
+      owner: vagrant
+      group: vagrant
+
+  - name: Install .bash_profile for root
+    copy:
+      src: ./files/bash_profile
+      dest: /root/.bash_profile
+      mode: 0644
+      owner: root
+
+  - name: Install .bash_profile for vagrant
+    copy:
+      src: ./files/bash_profile
+      dest: /home/vagrant/.bash_profile
+      mode: 0644
+      owner: vagrant
+      group: vagrant
+
+  - name: Create /etc/containers/registries.conf
+    copy:
+      src: ./files/registries.conf
+      dest: /etc/containers/registries.conf
+      owner: root
+      group: root
+      mode: 0644
+
+  - name: Log into Red Hat Registries
+    shell: "podman login -u {{ redhat_subscription_username }} -p {{ redhat_subscription_password }} {{ item }}"
+    with_items:
+      - "registry.redhat.io"
+      - "registry.connect.redhat.com"
+
+  # - name: Build Guest Additions
+  #   command: vagrant vbguest
+  #   delegate_to: localhost

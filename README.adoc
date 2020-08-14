@@ -1,0 +1,61 @@
+== README
+
+Vagrantfile for a RHEL 7.5 machine with OpenShift Client stuff installed
+
+Read this entire README before running *vagrant up*.
+
+=== Overview
+
+* This configuration uses a standard vagrant insecure key
+* Generate a key called *vagrant.pem* and place it into *$HOME/.ssh*.
++
+[source,ruby]
+----
+ssh_keys = ["~/.vagrant.d/insecure_private_key", "~/.ssh/vagrant.pem" ]
+----
+
+* Private network setup
+** Allows VM to appear as full, local, network citizen and simplifies use of ssh, ansible etc
+** If you need to change the IP Address you will also need to change the IP Address in the file *inventory* which Ansible uses to configure the VM.
++
+[source,ruby]
+----
+ip = "192.168.10.10"
+----
+
+* Hostname - Feel free to change
++
+[source,ruby]
+----
+hostname = "rhelvm"
+----
+
+* Mounts the directory *~/Development* into the VM as */home/vagrant/development*.
+** Change to reflect your environment
++
+[source,ruby]
+----
+local_folder = "~/Development"
+remote_mount = "/home/vagrant/development"
+----
+
+=== Ansible Configuration
+
+* This Configuration uses an Ansible Playbook to initially set up the VM.
+* Create a file *configure_secret_vars.yml* in the same directory as your Vagrantfile with values for your Red Hat Subscription.
+** You will need the following content for this file:
++
+[source,yaml]
+----
+redhat_subscription_username: <subscription account>
+redhat_subscription_password: <subscription password>
+redhat_subscription_poolid: <pool id for subscription>
+----
++
+* The Vagrantfile executes the Ansible Playbook *configure_box.yml* upon first start of the Vagrant VM.
+** To execute again after the VM has already been provisioned:
++
+[source,bash]
+----
+vagrant provision
+----
