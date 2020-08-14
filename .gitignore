@@ -1,0 +1,3 @@
+.vagrant
+configure_secret_vars.yml
+*.retry
